@@ -343,7 +343,7 @@ function EDITOR:SetText(text)
 end
 
 function EDITOR:GetValue()
-	return string_gsub(table_concat(self.Rows, "\n"), "\r", "")
+	return (string_gsub(table_concat(self.Rows, "\n"), "\r", ""))
 end
 
 function EDITOR:HighlightLine( line, r, g, b, a )
@@ -2168,7 +2168,7 @@ end
 -----------------------------------------------------------
 
 function EDITOR:AC_SaveVariables()
-	local OK, directives,_ = PreProcessor.Execute( self:GetValue() )
+	local OK, directives,_ = E2Lib.PreProcessor.Execute( self:GetValue() )
 
 	if not OK or not directives then
 		return

@@ -10,22 +10,33 @@ function gmsave.ShouldSaveEntity( ent, ... )
 	return old( ent, ... )
 end
 
-local wire_expression2_unlimited = GetConVar("wire_expression2_unlimited")
-local wire_expression2_quotasoft = GetConVar("wire_expression2_quotasoft")
-local wire_expression2_quotahard = GetConVar("wire_expression2_quotahard")
-local wire_expression2_quotatick = GetConVar("wire_expression2_quotatick")
+e2_softquota = nil
+e2_hardquota = nil
+e2_tickquota = nil
 
-timer.Create("e2quota", 1, 0, function()
-	if wire_expression2_unlimited:GetBool() then
-		e2_softquota = 1000000
-		e2_hardquota = 1000000
-		e2_tickquota = 100000
-	else
-		e2_softquota = wire_expression2_quotasoft:GetInt()
-		e2_hardquota = wire_expression2_quotahard:GetInt()
-		e2_tickquota = wire_expression2_quotatick:GetInt()
+do
+	local wire_expression2_unlimited = GetConVar("wire_expression2_unlimited")
+	local wire_expression2_quotasoft = GetConVar("wire_expression2_quotasoft")
+	local wire_expression2_quotahard = GetConVar("wire_expression2_quotahard")
+	local wire_expression2_quotatick = GetConVar("wire_expression2_quotatick")
+
+	local function updateQuotas()
+		if wire_expression2_unlimited:GetBool() then
+			e2_softquota = 1000000
+			e2_hardquota = 1000000
+			e2_tickquota = 100000
+		else
+			e2_softquota = wire_expression2_quotasoft:GetInt()
+			e2_hardquota = wire_expression2_quotahard:GetInt()
+			e2_tickquota = wire_expression2_quotatick:GetInt()
+		end
 	end
-end)
+	cvars.AddChangeCallback("wire_expression2_unlimited", updateQuotas)
+	cvars.AddChangeCallback("wire_expression2_quotasoft", updateQuotas)
+	cvars.AddChangeCallback("wire_expression2_quotahard", updateQuotas)
+	cvars.AddChangeCallback("wire_expression2_quotatick", updateQuotas)
+	updateQuotas()
+end
 
 local function copytype(var)
 	return istable(var) and table.Copy(var) or var
@@ -218,7 +229,7 @@ function ENT:CompileCode(buffer, files, filepath)
 		self.filepath = filepath
 	end
 
-	local status, directives, buffer = PreProcessor.Execute(buffer,nil,self)
+	local status, directives, buffer = E2Lib.PreProcessor.Execute(buffer,nil,self)
 	if not status then self:Error(directives) return end
 	self.buffer = buffer
 	self.error = false
@@ -238,15 +249,15 @@ function ENT:CompileCode(buffer, files, filepath)
 	self.persists = directives.persist
 	self.trigger = directives.trigger
 
-	local status, tokens = Tokenizer.Execute(self.buffer)
+	local status, tokens = E2Lib.Tokenizer.Execute(self.buffer)
 	if not status then self:Error(tokens) return end
 
-	local status, tree, dvars = Parser.Execute(tokens)
+	local status, tree, dvars = E2Lib.Parser.Execute(tokens)
 	if not status then self:Error(tree) return end
 
 	if not self:PrepareIncludes(files) then return end
 
-	local status, script, inst = Compiler.Execute(tree, self.inports[3], self.outports[3], self.persists[3], dvars, self.includes)
+	local status, script, inst = E2Lib.Compiler.Execute(tree, self.inports[3], self.outports[3], self.persists[3], dvars, self.includes)
 	if not status then self:Error(script) return end
 
 	self.script = script
@@ -257,6 +268,10 @@ function ENT:CompileCode(buffer, files, filepath)
 	self.globvars = inst.GlobalScope
 
 	self:ResetContext()
+end
+
+function ENT:GetGateName()
+	return self.name
 end
 
 function ENT:GetCode()
@@ -270,19 +285,19 @@ function ENT:PrepareIncludes(files)
 	self.includes = {}
 
 	for file, buffer in pairs(files) do
-		local status, directives, buffer = PreProcessor.Execute(buffer, self.directives)
+		local status, directives, buffer = E2Lib.PreProcessor.Execute(buffer, self.directives)
 		if not status then
 			self:Error("(" .. file .. ")" .. directives)
 			return
 		end
 
-		local status, tokens = Tokenizer.Execute(buffer)
+		local status, tokens = E2Lib.Tokenizer.Execute(buffer)
 		if not status then
 			self:Error("(" .. file .. ")" .. tokens)
 			return
 		end
 
-		local status, tree, dvars = Parser.Execute(tokens)
+		local status, tree, dvars = E2Lib.Parser.Execute(tokens)
 		if not status then
 			self:Error("(" .. file .. ")" .. tree)
 			return
@@ -541,6 +556,7 @@ end)
 function MakeWireExpression2(player, Pos, Ang, model, buffer, name, inputs, outputs, vars, inc_files, filepath)
 	if not player then player = game.GetWorld() end -- For Garry's Map Saver
 	if IsValid(player) and not player:CheckLimit("wire_expressions") then return false end
+	if not WireLib.CanModel(player, model) then return false end
 
 	local self = ents.Create("gmod_wire_expression2")
 	if not self:IsValid() then return false end
